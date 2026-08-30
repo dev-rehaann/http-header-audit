@@ -1,8 +1,10 @@
-"""Evaluate and score HTTP security headers."""
+"""Fetch, evaluate, and score HTTP security headers."""
 
 import re
 from dataclasses import dataclass
 from typing import Literal
+
+import httpx
 
 Severity = Literal["high", "medium", "low"]
 Status = Literal["ok", "weak", "missing"]
@@ -71,6 +73,11 @@ SEVERITY_POINTS: dict[Severity, int] = {
     "medium": 15,
     "low": 5,
 }
+
+DEFAULT_USER_AGENT = (
+    "http-header-audit/0.1 "
+    "(+https://github.com/dev-rehaann/http-header-audit)"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,3 +152,27 @@ def evaluate_header(
     )
     return HeaderFinding(rule, "ok", actual_value, note)
 
+
+def scan(
+    url: str,
+    *,
+    timeout: float = 10.0,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> ScanReport:
+    """Fetch one URL and evaluate its response security headers."""
+
+    response = httpx.get(
+        url,
+        timeout=timeout,
+        follow_redirects=True,
+        headers={"User-Agent": user_agent},
+    )
+    response_headers = dict(response.headers)
+    return ScanReport(
+        url=url,
+        final_url=str(response.url),
+        status_code=response.status_code,
+        findings=tuple(
+            evaluate_header(rule, response_headers) for rule in RULES
+        ),
+    )
