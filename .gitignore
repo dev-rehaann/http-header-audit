@@ -1,0 +1,14 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.agents/
+.codex/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+credentials.json
+secrets.*
