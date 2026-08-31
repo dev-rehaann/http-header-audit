@@ -1,9 +1,10 @@
-"""Checks for header evaluation, scoring, and network scanning."""
+"""Checks for evaluation, scanning, and command-line behavior."""
 
 import httpx
 import pytest
 import respx
 
+import http_headers_scanner as scanner
 from http_headers_scanner import (
     RULES,
     HeaderFinding,
@@ -99,3 +100,50 @@ def test_scan_leaves_network_errors_for_the_caller() -> None:
 
     with pytest.raises(httpx.RequestError):
         scan("https://offline.example/")
+
+
+def test_argument_parser_validates_url_and_timeout() -> None:
+    parser = scanner._build_argument_parser()
+
+    args = parser.parse_args(["https://example.com", "--timeout", "2.5"])
+    assert args.timeout == 2.5
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["example.com"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["https://example.com", "--timeout", "0"])
+
+
+@pytest.mark.parametrize(("rule_count", "expected"), ((6, 0), (3, 1), (0, 2)))
+def test_main_maps_grades_to_exit_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    rule_count: int,
+    expected: int,
+) -> None:
+    report = ScanReport(
+        url="https://example.com",
+        final_url="https://example.com",
+        status_code=200,
+        findings=tuple(
+            HeaderFinding(rule, "ok", "configured", "Present")
+            for rule in RULES[:rule_count]
+        ),
+    )
+    monkeypatch.setattr(scanner, "scan", lambda *_args, **_kwargs: report)
+    monkeypatch.setattr("sys.argv", ["headers", "https://example.com"])
+
+    assert scanner.main() == expected
+
+
+def test_main_turns_network_errors_into_exit_code_two(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> ScanReport:
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(scanner, "scan", fail)
+    monkeypatch.setattr("sys.argv", ["headers", "https://example.com"])
+
+    assert scanner.main() == 2
+    assert "Request failed" in capsys.readouterr().out

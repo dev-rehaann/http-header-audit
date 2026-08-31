@@ -1,10 +1,18 @@
-"""Fetch, evaluate, and score HTTP security headers."""
+"""Fetch, evaluate, score, and report HTTP security headers."""
 
+import argparse
+import math
 import re
+import sys
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import urlsplit
 
 import httpx
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 Severity = Literal["high", "medium", "low"]
 Status = Literal["ok", "weak", "missing"]
@@ -78,6 +86,20 @@ DEFAULT_USER_AGENT = (
     "http-header-audit/0.1 "
     "(+https://github.com/dev-rehaann/http-header-audit)"
 )
+
+STATUS_COLORS: dict[Status, str] = {
+    "ok": "green",
+    "weak": "yellow",
+    "missing": "red",
+}
+
+GRADE_COLORS = {
+    "A": "bright_green",
+    "B": "green",
+    "C": "yellow",
+    "D": "red",
+    "F": "bright_red",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,3 +198,107 @@ def scan(
             evaluate_header(rule, response_headers) for rule in RULES
         ),
     )
+
+
+def _render_report(report: ScanReport, console: Console) -> None:
+    table = Table(
+        title=Text(
+            f"Headers for {report.final_url} (HTTP {report.status_code})"
+        )
+    )
+    table.add_column("header", style="cyan")
+    table.add_column("status")
+    table.add_column("severity")
+    table.add_column("note", overflow="fold")
+
+    for finding in report.findings:
+        table.add_row(
+            finding.rule.header,
+            Text(finding.status, style=STATUS_COLORS[finding.status]),
+            finding.rule.severity,
+            Text(finding.note),
+        )
+    console.print(table)
+
+    if report.final_url.startswith("http://"):
+        console.print(
+            "[yellow]Note:[/yellow] this response used plain HTTP, so "
+            "browsers will ignore any HSTS header."
+        )
+
+    result = Text("Grade: ")
+    result.append(report.grade, style=f"bold {GRADE_COLORS[report.grade]}")
+    result.append(f"\nScore: {report.score} / 100")
+    console.print(Panel(result, title="Result"))
+
+    actionable = tuple(
+        finding for finding in report.findings if finding.status != "ok"
+    )
+    if actionable:
+        console.print("\n[bold]Recommendations:[/bold]")
+        for finding in actionable:
+            recommendation = Text("  - ")
+            recommendation.append(finding.rule.header, style="bold")
+            recommendation.append(f" - {finding.rule.recommendation}")
+            console.print(recommendation)
+
+
+def _http_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise argparse.ArgumentTypeError(
+            "URL must include http:// or https:// and a host"
+        )
+    return value
+
+
+def _positive_timeout(value: str) -> float:
+    try:
+        timeout = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("timeout must be a number") from exc
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise argparse.ArgumentTypeError("timeout must be greater than zero")
+    return timeout
+
+
+def _build_argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="headers",
+        description="Grade a URL's HTTP security headers A-F.",
+    )
+    parser.add_argument(
+        "url",
+        type=_http_url,
+        help="Full URL to scan, including http:// or https://.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=_positive_timeout,
+        default=10.0,
+        help="Seconds to wait for the request (default: 10).",
+    )
+    return parser
+
+
+def main() -> int:
+    args = _build_argument_parser().parse_args()
+    console = Console()
+    try:
+        report = scan(args.url, timeout=args.timeout)
+    except httpx.RequestError as exc:
+        console.print(
+            f"[red]Request failed:[/red] {type(exc).__name__}: {exc}"
+        )
+        return 2
+
+    _render_report(report, console)
+    if report.grade in {"A", "B"}:
+        return 0
+    if report.grade in {"C", "D"}:
+        return 1
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
