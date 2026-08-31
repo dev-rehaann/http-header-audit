@@ -16,8 +16,25 @@ build-backend = "setuptools.build_meta"
 py-modules = ["http_headers_scanner"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "respx>=0.22"]
+dev = [
+    "mypy>=1.17",
+    "pytest>=8.0",
+    "respx>=0.22",
+    "ruff>=0.12",
+]
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["."]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["http_headers_scanner.py", "test_http_headers_scanner.py"]

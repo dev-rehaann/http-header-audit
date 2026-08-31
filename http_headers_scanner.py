@@ -35,8 +35,7 @@ RULES: tuple[HeaderRule, ...] = (
         severity="high",
         description="Forces future connections to use HTTPS.",
         recommendation=(
-            "Add: Strict-Transport-Security: max-age=31536000; "
-            "includeSubDomains"
+            "Add: Strict-Transport-Security: max-age=31536000; includeSubDomains"
         ),
         must_match=r"max-age\s*=\s*[1-9]\d*",
     ),
@@ -70,8 +69,7 @@ RULES: tuple[HeaderRule, ...] = (
         severity="low",
         description="Restricts access to sensitive browser features.",
         recommendation=(
-            "Add: Permissions-Policy: camera=(), microphone=(), "
-            "geolocation=()"
+            "Add: Permissions-Policy: camera=(), microphone=(), geolocation=()"
         ),
     ),
 )
@@ -83,8 +81,7 @@ SEVERITY_POINTS: dict[Severity, int] = {
 }
 
 DEFAULT_USER_AGENT = (
-    "http-header-audit/0.1 "
-    "(+https://github.com/dev-rehaann/http-header-audit)"
+    "http-header-audit/0.1 (+https://github.com/dev-rehaann/http-header-audit)"
 )
 
 STATUS_COLORS: dict[Status, str] = {
@@ -158,20 +155,14 @@ def evaluate_header(
         return HeaderFinding(
             rule, "missing", None, f"Header `{rule.header}` is not set"
         )
-    if rule.must_match and not re.search(
-        rule.must_match, actual_value, re.IGNORECASE
-    ):
+    if rule.must_match and not re.search(rule.must_match, actual_value, re.IGNORECASE):
         return HeaderFinding(
             rule,
             "weak",
             actual_value,
             f"Present but does not match `{rule.must_match}`",
         )
-    note = (
-        f"Present and matches `{rule.must_match}`"
-        if rule.must_match
-        else "Present"
-    )
+    note = f"Present and matches `{rule.must_match}`" if rule.must_match else "Present"
     return HeaderFinding(rule, "ok", actual_value, note)
 
 
@@ -194,17 +185,13 @@ def scan(
         url=url,
         final_url=str(response.url),
         status_code=response.status_code,
-        findings=tuple(
-            evaluate_header(rule, response_headers) for rule in RULES
-        ),
+        findings=tuple(evaluate_header(rule, response_headers) for rule in RULES),
     )
 
 
 def _render_report(report: ScanReport, console: Console) -> None:
     table = Table(
-        title=Text(
-            f"Headers for {report.final_url} (HTTP {report.status_code})"
-        )
+        title=Text(f"Headers for {report.final_url} (HTTP {report.status_code})")
     )
     table.add_column("header", style="cyan")
     table.add_column("status")
@@ -231,9 +218,7 @@ def _render_report(report: ScanReport, console: Console) -> None:
     result.append(f"\nScore: {report.score} / 100")
     console.print(Panel(result, title="Result"))
 
-    actionable = tuple(
-        finding for finding in report.findings if finding.status != "ok"
-    )
+    actionable = tuple(finding for finding in report.findings if finding.status != "ok")
     if actionable:
         console.print("\n[bold]Recommendations:[/bold]")
         for finding in actionable:
@@ -287,9 +272,7 @@ def main() -> int:
     try:
         report = scan(args.url, timeout=args.timeout)
     except httpx.RequestError as exc:
-        console.print(
-            f"[red]Request failed:[/red] {type(exc).__name__}: {exc}"
-        )
+        console.print(f"[red]Request failed:[/red] {type(exc).__name__}: {exc}")
         return 2
 
     _render_report(report, console)
